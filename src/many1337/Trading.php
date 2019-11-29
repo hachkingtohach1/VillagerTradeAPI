@@ -15,12 +15,14 @@ use pocketmine\nbt\tag\ByteTag;
 use pocketmine\nbt\tag\CompoundTag;
 use pocketmine\nbt\tag\IntTag;
 use pocketmine\nbt\tag\ListTag;
+use pocketmine\nbt\tag\DoubleTag;
 use pocketmine\nbt\tag\ShortTag;
-use pocketmine\network\mcpe\protocol\AddEntityPacket;
+use pocketmine\network\mcpe\protocol\AddActorPacket;
 use pocketmine\network\mcpe\protocol\ContainerClosePacket;
 use pocketmine\network\mcpe\protocol\EntityEventPacket;
 use pocketmine\network\mcpe\protocol\InventoryTransactionPacket;
-use pocketmine\network\mcpe\protocol\RemoveEntityPacket;
+use pocketmine\nbt\LittleEndianNBTStream;
+use pocketmine\network\mcpe\protocol\RemoveActorPacket;
 use pocketmine\network\mcpe\protocol\UpdateTradePacket;
 use pocketmine\plugin\PluginBase;
 
@@ -60,7 +62,7 @@ class Trading extends PluginBase implements Listener{
 		$p = $e->getPlayer();
 		if($e->getAction() === PlayerInteractEvent::RIGHT_CLICK_BLOCK){
 			$this->villagerId[$p->getName()] = $eid = mt_rand(0xfffff, 0x7fffffff);
-			$pk = new AddEntityPacket();
+			$pk = new AddActorPacket();
 			$pk->entityRuntimeId = $eid;
 			$pk->type = Villager::NETWORK_ID;
 			$pk->position = $p->subtract(0, 4, 0);
@@ -70,31 +72,31 @@ class Trading extends PluginBase implements Listener{
 				Entity::DATA_FLAGS => [Entity::DATA_TYPE_LONG, 1 << Entity::DATA_FLAG_IMMOBILE],
 				Entity::DATA_SCALE => [Entity::DATA_TYPE_FLOAT, 0]
 			];
-			$p->dataPacket($pk);
-
-			$tag = new CompoundTag("", [
-				new ListTag("Recipes", []),
-			]);
-			$recipes = [[Item::get(Item::BRICK, 0, 1), Item::get(Item::SANDSTONE, 2, 2)], [Item::get(Item::BRICK, 0, 7), Item::get(Item::END_STONE, 0, 1)]];
-			$this->recipes[$p->getName()] = $recipes;
+            $p->dataPacket($pk);//
+			$tag = new CompoundTag("", []);
+            $recipes = [[Item::get(Item::BRICK, 0, 1), Item::get(Item::SANDSTONE, 2, 2)], [Item::get(Item::BRICK, 0, 7), Item::get(Item::END_STONE, 0, 1)]];
+            $this->recipes[$p->getName()] = $recipes;
+            $result = [];
 			$i = 0;
-			foreach($recipes as $recipe){
-				$tag->Recipes[$i] = $this->makeRecipe($recipe[0], $recipe[1], $recipe[2] ?? null);
+            foreach($recipes as $recipe){
+                $array[$i] = $this->makeRecipe($recipe[0], $recipe[1], $recipe[2] ?? null);
 				++$i;
-			}
-			$nbt = new NBT;
-			$nbt->setData($tag);
-
-			$tr = new UpdateTradePacket;
-			$tr->windowId = 2;
-			$tr->varint1 = 0;
-			$tr->varint2 = 0;
-			$tr->isWilling = false;
-			$tr->traderEid = $eid;
-			$tr->playerEid = -1;
-			$tr->displayName = "Shop";
-			$tr->offers = $nbt->write(true);
-			$p->dataPacket($tr);
+            }
+            $data = $tag->setTag(new ListTag("Recipes", $array));
+            $nbt = new LittleEndianNBTStream();//			
+            $tr = new UpdateTradePacket;
+            $tr->windowId = 2;
+            $tr->thisIsAlwaysZero = 0;
+            $tr->tradeTier = 0;
+            $tr->isWilling = false;
+			$tr->isV2Trading = false;
+            $tr->traderEid = $eid;
+            $tr->playerEid = -1;
+            $tr->displayName = "Shop";
+            //$nbt = new LittleEndianNBTStream();//
+            $tr->offers = $nbt->write($data);
+			//$nbt->writeTag($wow);
+            $p->dataPacket($tr);
 		}
 	}
 
@@ -111,7 +113,7 @@ class Trading extends PluginBase implements Listener{
 		$pk = $e->getPacket();
 		if($pk instanceof ContainerClosePacket){
 			if($pk->windowId === 0xff and isset($this->villagerId[$player->getName()])){
-				$pk = new RemoveEntityPacket();
+				$pk = new RemoveActorPacket();
 				$pk->entityUniqueId = $eid = $this->villagerId[$player->getName()];
 				$player->dataPacket($pk);
 				unset($this->villagerId[$player->getName()]);
@@ -137,3 +139,4 @@ class Trading extends PluginBase implements Listener{
 		}
 	}
 }
+
